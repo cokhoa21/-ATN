@@ -8,6 +8,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputData = document.getElementById('inputData');
     const predictionResult = document.getElementById('predictionResult');
     const charCounter = document.getElementById('charCounter');
+    const seleniumExtractBtn = document.getElementById('seleniumExtractBtn');
+    const seleniumStatus = document.getElementById('seleniumStatus');
+    const seleniumCookiesBox = document.getElementById('seleniumCookiesBox');
+
+    // Biến để lưu trữ tất cả các cookies từ các nguồn khác nhau
+    let allCookies = {
+        standard: [],
+        selenium: []
+    };
 
     // Charger l'URL de l'API sauvegardée
     chrome.storage.local.get(['savedApiUrl'], (data) => {
@@ -16,11 +25,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Vérifier si nous avons déjà des cookies
-    chrome.storage.local.get(['cookieValues'], (data) => {
-        if (data.cookieValues && data.cookieValues.length > 0) {
-            status.textContent = `${data.cookieValues.length} cookies disponibles`;
-            updateInputDataFromCookies(data.cookieValues);
+    // Khôi phục cookies đã lưu từ trước nếu có
+    chrome.storage.local.get(['allCookies'], (data) => {
+        if (data.allCookies) {
+            allCookies = data.allCookies;
+            updateInputDataFromAllCookies();
+        } else {
+            // Tương thích ngược với phiên bản cũ chỉ lưu cookieValues
+            chrome.storage.local.get(['cookieValues'], (oldData) => {
+                if (oldData.cookieValues && oldData.cookieValues.length > 0) {
+                    allCookies.standard = oldData.cookieValues;
+                    status.textContent = `${oldData.cookieValues.length} cookies disponibles`;
+                    updateInputDataFromAllCookies();
+                }
+            });
         }
     });
 
@@ -30,15 +48,45 @@ document.addEventListener('DOMContentLoaded', () => {
             if (message.error) {
                 status.textContent = `Erreur: ${message.error}`;
             } else {
-                status.textContent = `${message.count} cookies extraits`;
+                chrome.storage.local.get(['cookieValues'], (data) => {
+                    if (data.cookieValues) {
+                        // Cập nhật cookies tiêu chuẩn
+                        allCookies.standard = data.cookieValues;
+                        status.textContent = `${data.cookieValues.length} cookies extraits`;
+
+                        // Lưu lại tất cả các cookies
+                        saveCookiesAndUpdateUI();
+
+                        // Tự động dự đoán
+                        setTimeout(() => { predictBtn.click(); }, 200);
+                    }
+                });
             }
-            chrome.storage.local.get(['cookieValues'], (data) => {
-                if (data.cookieValues) {
-                    updateInputDataFromCookies(data.cookieValues);
-                }
-            });
         }
     });
+
+    // Lưu tất cả cookies và cập nhật giao diện
+    function saveCookiesAndUpdateUI() {
+        chrome.storage.local.set({ allCookies: allCookies }, () => {
+            // Hiển thị cookies tiêu chuẩn
+            displayExtractedCookies(allCookies.standard);
+
+            // Hiển thị cookies selenium nếu có
+            if (allCookies.selenium && allCookies.selenium.length > 0) {
+                seleniumCookiesBox.innerHTML = allCookies.selenium.map(c => {
+                    const isDup = allCookies.standard.some(stdCookie => stdCookie.name === c.name);
+                    return `<div>
+                        <b>${c.name}</b>: 
+                        <span style='word-break:break-all'>${c.value}</span> 
+                        <i>(${c.domain})${isDup ? ' (trùng lặp)' : ''}</i>
+                    </div>`;
+                }).join('');
+            }
+
+            // Cập nhật input data cho dự đoán
+            updateInputDataFromAllCookies();
+        });
+    }
 
     // Save API URL
     saveApiBtn.addEventListener('click', () => {
@@ -53,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Extract cookies
+    // Extract cookies tiêu chuẩn
     extractBtn.addEventListener('click', () => {
         status.textContent = "Extraction en cours...";
 
@@ -71,10 +119,92 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Update input field with processed cookie data
-    function updateInputDataFromCookies(cookieValues) {
+    // Hiển thị cookies đã trích xuất (thường)
+    function displayExtractedCookies(cookieValues) {
+        const box = document.getElementById('extractedCookiesBox');
+        if (!box) return;
+        if (!cookieValues || cookieValues.length === 0) {
+            box.innerHTML = '<i>Không có cookies nào được trích xuất</i>';
+            return;
+        }
+        box.innerHTML = cookieValues.map(c =>
+            `<div><b>${c.name}</b>: <span style='word-break:break-all'>${c.value}</span></div>`
+        ).join('');
+    }
+
+    // Tạo vùng hiển thị cho cookies thường nếu chưa có
+    if (!document.getElementById('extractedCookiesBox')) {
+        const box = document.createElement('div');
+        box.id = 'extractedCookiesBox';
+        box.className = 'result-box';
+        const section = document.querySelector('.section');
+        section.appendChild(box);
+    }
+
+    // Lấy cookies nâng cao bằng Selenium (gọi server Flask)
+    seleniumExtractBtn.addEventListener('click', () => {
+        seleniumStatus.textContent = "Đang lấy cookies từ server Selenium...";
+        seleniumCookiesBox.textContent = "";
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const activeTab = tabs[0];
+            if (activeTab && activeTab.url) {
+                fetch('http://localhost:5000/extract_cookies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: activeTab.url })
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.cookies && Array.isArray(data.cookies)) {
+                            seleniumStatus.textContent = `Đã lấy ${data.cookies.length} cookies từ server Selenium`;
+
+                            // Cập nhật cookies Selenium
+                            allCookies.selenium = data.cookies;
+
+                            // Lưu lại tất cả các cookies và cập nhật giao diện
+                            saveCookiesAndUpdateUI();
+
+                            // Tự động dự đoán
+                            setTimeout(() => { predictBtn.click(); }, 200);
+                        } else {
+                            seleniumStatus.textContent = 'Không lấy được cookies từ server Selenium';
+                            seleniumCookiesBox.textContent = '';
+                        }
+                    })
+                    .catch(err => {
+                        seleniumStatus.textContent = 'Lỗi khi gọi server Selenium: ' + err.message;
+                        seleniumCookiesBox.textContent = '';
+                    });
+            } else {
+                seleniumStatus.textContent = "Aucun onglet actif trouvé";
+            }
+        });
+    });
+
+    // Cập nhật input field với dữ liệu từ tất cả các nguồn cookies
+    function updateInputDataFromAllCookies() {
+        // Kết hợp cookies từ cả hai nguồn, loại bỏ trùng lặp
+        const combinedCookies = [];
+        const cookieNames = new Set();
+
+        // Thêm cookies tiêu chuẩn trước
+        allCookies.standard.forEach(cookie => {
+            combinedCookies.push(cookie);
+            cookieNames.add(cookie.name);
+        });
+
+        // Thêm cookies selenium nếu chưa có
+        if (allCookies.selenium) {
+            allCookies.selenium.forEach(cookie => {
+                if (!cookieNames.has(cookie.name)) {
+                    combinedCookies.push(cookie);
+                    cookieNames.add(cookie.name);
+                }
+            });
+        }
+
         // Process each cookie separately
-        const processedResults = cookieValues.map(cookie => {
+        const processedResults = combinedCookies.map(cookie => {
             // Process single cookie with the algorithm
             const processedData = processSingleCookie(cookie.value);
             // Return the flattened sequence for this cookie along with its name
@@ -135,8 +265,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Monitor changes in input field
     inputData.addEventListener('input', () => {
-        const inputValues = inputData.value.trim().split(',').filter(val => val.trim() !== '');
-        updateCharCounter(inputValues.length);
+        try {
+            const inputValues = JSON.parse(inputData.value.trim());
+            if (Array.isArray(inputValues)) {
+                updateCharCounter(inputValues.length);
+            }
+        } catch (e) {
+            updateCharCounter(0);
+        }
     });
 
     // Clear data
@@ -144,8 +280,11 @@ document.addEventListener('DOMContentLoaded', () => {
         inputData.value = '';
         updateCharCounter(0);
         predictionResult.textContent = '';
-        chrome.storage.local.remove(['cookieValues'], () => {
+        allCookies = { standard: [], selenium: [] };
+        chrome.storage.local.remove(['cookieValues', 'allCookies'], () => {
             status.textContent = "Data cleared";
+            displayExtractedCookies([]);
+            seleniumCookiesBox.textContent = '';
             setTimeout(() => {
                 status.textContent = "";
             }, 2000);

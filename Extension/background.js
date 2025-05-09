@@ -16,7 +16,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const domain = new URL(url).hostname;
             console.log(`Extracting cookies for domain: ${domain}`);
 
-            // Use the cookies API to get all cookies for the domain
+            // Step 1: Get cookies from chrome.cookies API
             chrome.cookies.getAll({ domain: domain }, (cookies) => {
                 if (chrome.runtime.lastError) {
                     console.error("Error accessing cookies:", chrome.runtime.lastError);
@@ -28,42 +28,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     return;
                 }
 
-                if (cookies.length === 0) {
-                    console.log("No cookies found for domain:", domain);
-                    chrome.runtime.sendMessage({
-                        action: "cookiesExtracted",
-                        count: 0,
-                        error: "Aucun cookie trouvé pour ce domaine"
-                    });
-                    return;
-                }
-
-                // Extract cookie values and names
-                const cookieValues = cookies.map(cookie => ({
+                // Extract cookie values and names from chrome.cookies
+                const chromeCookieValues = cookies.map(cookie => ({
                     name: cookie.name,
                     value: cookie.value
                 }));
-                console.log(`Found ${cookieValues.length} cookies for domain: ${domain}`);
 
-                // Store values for later processing
-                chrome.storage.local.set({ cookieValues: cookieValues }, () => {
-                    if (chrome.runtime.lastError) {
-                        console.error("Error storing cookies:", chrome.runtime.lastError);
-                        chrome.runtime.sendMessage({
-                            action: "cookiesExtracted",
-                            count: 0,
-                            error: "Erreur de stockage des cookies: " + chrome.runtime.lastError.message
-                        });
+                // Step 2: Get cookies from content script (document.cookie)
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    if (!tabs || tabs.length === 0) {
+                        // No active tab
+                        finishExtraction(chromeCookieValues, []);
                         return;
                     }
-
-                    console.log("Cookie values successfully stored");
-                    // Notify popup that data is ready
-                    chrome.runtime.sendMessage({
-                        action: "cookiesExtracted",
-                        count: cookieValues.length
+                    const tabId = tabs[0].id;
+                    chrome.scripting.executeScript({
+                        target: { tabId: tabId },
+                        func: () => {
+                            // Extract cookies from document.cookie
+                            const cookiesString = document.cookie;
+                            const cookiePairs = cookiesString.split(';');
+                            return cookiePairs.map(pair => {
+                                const [name, ...rest] = pair.trim().split('=');
+                                return { name, value: rest.join('=') };
+                            });
+                        }
+                    }, (results) => {
+                        let contentCookies = [];
+                        if (results && results[0] && Array.isArray(results[0].result)) {
+                            contentCookies = results[0].result;
+                        }
+                        finishExtraction(chromeCookieValues, contentCookies);
                     });
                 });
+
+                // Helper to merge and send cookies
+                function finishExtraction(cookiesA, cookiesB) {
+                    // Merge two arrays, remove duplicates by name
+                    const allCookies = [...cookiesA, ...cookiesB];
+                    const uniqueCookies = [];
+                    const seen = new Set();
+                    for (const c of allCookies) {
+                        if (!seen.has(c.name)) {
+                            seen.add(c.name);
+                            uniqueCookies.push(c);
+                        }
+                    }
+                    // Store values for later processing
+                    chrome.storage.local.set({ cookieValues: uniqueCookies }, () => {
+                        if (chrome.runtime.lastError) {
+                            console.error("Error storing cookies:", chrome.runtime.lastError);
+                            chrome.runtime.sendMessage({
+                                action: "cookiesExtracted",
+                                count: 0,
+                                error: "Erreur de stockage des cookies: " + chrome.runtime.lastError.message
+                            });
+                            return;
+                        }
+                        console.log(`Total cookies extracted: ${uniqueCookies.length}`);
+                        chrome.runtime.sendMessage({
+                            action: "cookiesExtracted",
+                            count: uniqueCookies.length
+                        });
+                    });
+                }
             });
         } catch (error) {
             console.error("Error extracting cookies:", error);
