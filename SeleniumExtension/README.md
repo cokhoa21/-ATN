@@ -1,54 +1,47 @@
-# Selenium Cookie Extractor
+# SeleniumExtension
 
-This project provides a tool to extract cookies from websites using Selenium WebDriver, which can access more cookies than the Chrome extension method.
+## Mô tả
+Thư mục này chứa server Flask sử dụng Selenium để tự động truy cập website và trích xuất cookies nâng cao (bao gồm cookies khó lấy, cookies động, cookies từ iframe...).
 
-## Setup
+## Cài đặt
 
-1. Install Python dependencies:
-```bash
-pip install -r requirements.txt
-```
+1. Cài đặt Python 3.8+ và pip.
+2. Cài đặt các thư viện cần thiết:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   (Bao gồm: selenium, flask, flask-cors, webdriver-manager, ...)
 
-2. Make sure you have Chrome browser installed on your system.
+3. Đảm bảo đã cài đặt Google Chrome trên máy.
 
-## Usage
+## Chạy server
 
-1. Start the server:
 ```bash
 python server.py
 ```
 
-2. The server provides the following endpoints:
+Server sẽ chạy ở `http://localhost:5000`.
 
-   - `POST /extract`: Extract cookies from a URL
-     ```json
-     {
-         "url": "https://example.com"
-     }
-     ```
+## API
 
-   - `POST /predict`: Get prediction for a sequence
-     ```json
-     {
-         "sequence": [1, 2, 3, ...]
-     }
-     ```
+### Trích xuất cookies
 
-   - `POST /cleanup`: Clean up browser resources
-     ```json
-     {}
-     ```
+- **Endpoint:** `/extract_cookies`
+- **Phương thức:** POST
+- **Body (JSON):**
+  ```json
+  { "url": "https://example.com" }
+  ```
+- **Kết quả:**
+  ```json
+  {
+    "cookies": [
+      { "name": "...", "value": "...", "domain": "...", ... }
+    ]
+  }
+  ```
 
-## Features
+## Lưu ý
 
-- Uses Selenium WebDriver to access all cookies, including those not accessible via Chrome extension
-- Handles various browser scenarios and anti-bot measures
-- Provides a REST API for easy integration
-- Saves extracted cookies to a JSON file
-- Includes cleanup functionality to manage browser resources
-
-## Notes
-
-- The script includes a 5-second wait time for page loading. Adjust this in `cookie_extractor.py` if needed.
-- The browser window will be visible by default. You can modify the Chrome options to run in headless mode if desired.
-- Make sure to call the cleanup endpoint when you're done to properly close the browser. 
+- Extension sẽ gọi API này để lấy cookies nâng cao.
+- Có thể cần chỉnh sửa CORS hoặc port nếu chạy trên server khác.
