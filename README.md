@@ -64,14 +64,11 @@ python train.py
 - Có thể thay đổi URL API trong giao diện Extension.
 - Có thể mở rộng backend, model, hoặc giao diện theo nhu cầu.
 
-## Đóng góp
-
-- Pull request, issue, hoặc góp ý đều được hoan nghênh!
 
 ## Liên hệ
 
-- Tác giả: [Tên bạn]
-- Email: [Email của bạn]
+- Tác giả: Cồ Huy Khoa
+- Email: huykhoa21@gmail.com
 
 ---
 
